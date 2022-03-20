@@ -1,0 +1,103 @@
+
+// HUE SHIFT STREGTH
+
+#define MAX_SHIFT		0.30
+
+// TIME DEFINES (24-hour notation)
+
+#define DAY_HOUR_START	06 // 6AM
+#define DAY_HOUR_END	22 // 10PM
+
+
+U0 HueShiftCompute(CBGR24 *c, F64 shift)
+{
+	U64 dist_r, dist_b, dist_g;
+
+	dist_r = ToI64((255 - c->r) * shift);
+	if (c->r + dist_r > c->r) // overflow check
+		c->r += dist_r;
+
+	dist_b = ToI64(c->b * shift);
+	if (c->b - dist_b < c->b) // underflow check
+		c->b -= dist_b;
+
+	dist_g = ToI64(c->g * shift);
+	if (c->g - dist_g < c->g) // underflow check
+		c->g -= dist_g;
+}
+
+U0 HueShiftTask(I64)
+{
+	CBGR24		gr_shift_palette[COLORS_NUM];
+	CBGR24		c;
+	I64			i;
+	Bool		flush = FALSE;
+	U0		  (*last_fp_set_std_palette)();
+	CDateStruct ds;
+	F64			shift, cur_hour;
+
+	last_fp_set_std_palette = NULL;
+	while (TRUE)
+	{
+		Date2Struct(&ds, Now);
+		cur_hour = ToF64(ds.hour) + (ds.min / 60.0);
+
+		if (ToI64(cur_hour) < DAY_HOUR_END && ToI64(cur_hour) > DAY_HOUR_START)
+			shift = ((cur_hour - ToF64(DAY_HOUR_START)) / ToF64(DAY_HOUR_END - DAY_HOUR_START) * MAX_SHIFT);
+		else
+			shift = MAX_SHIFT;
+
+
+		if (fp_set_std_palette != last_fp_set_std_palette)
+		{
+			fp_set_std_palette();
+
+			for (i = 0; i < COLORS_NUM; i++)
+			{
+				c = gr_palette[i];
+				HueShiftCompute(&c, shift);
+				gr_shift_palette[i] = c;
+			}
+
+			last_fp_set_std_palette = fp_set_std_palette;
+		}
+
+		for (i = 0; i < COLORS_NUM; i++)
+		{
+
+			if (gr_palette[i] != gr_shift_palette[i])
+				flush = TRUE;
+		}
+
+		if (flush)
+		{
+			for (i = 0; i < COLORS_NUM; i++)
+			{
+				c = gr_palette[i];
+				HueShiftCompute(&c, shift);
+				gr_shift_palette[i] = c;
+				gr_palette[i] = gr_shift_palette[i];
+
+			}
+			LFBFlush;
+			flush = FALSE;
+		}
+
+		Sleep(1000);
+	}
+}
+
+U0 HueShift()
+{
+	if (Fs != sys_task)
+	{
+		"\nMust be System Included with SHIFT-F5.\n"
+		"or Right Click -> System Include.\n"
+		"(Would crash when code mem was freed.)\n\n";
+		return;
+	}
+
+	Spawn(&HueShiftTask, NULL, "HueShift");
+}
+
+HueShift;
